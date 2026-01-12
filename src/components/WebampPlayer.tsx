@@ -28,12 +28,12 @@ export function WebampPlayer() {
   const currentSkinIndexRef = useRef<number>(0);
   const [currentSkin, setCurrentSkin] = useState<Skin | null>(null);
   const [shuffleMode, setShuffleMode] = useState<"all" | "liked">("all");
-  const intervalRef = useRef<number | null>(null);
   const [currentSkinName, setCurrentSkinName] = useState<string>("");
   const [autoShuffle, setAutoShuffle] = useState<boolean>(true);
   const [shuffleProgress, setShuffleProgress] = useState<number>(0);
   const progressIntervalRef = useRef<number | null>(null);
   const prevProgressRef = useRef<number>(0);
+  const [skinLoading, setSkinLoading] = useState<boolean>(false);
 
   // Check if controls should be shown based on URL param
   const [showControls, setShowControls] = useState<boolean>(false);
@@ -128,7 +128,7 @@ export function WebampPlayer() {
           prevSkins.filter((skin) => skin.id !== currentSkin.id),
         );
         // Shuffle to a different skin since this one is now flagged
-        setTimeout(() => shuffleSkin(true), 100);
+        setTimeout(() => shuffleSkin(), 100);
       }
     } catch (error) {
       console.error("Error toggling flag:", error);
@@ -145,8 +145,8 @@ export function WebampPlayer() {
   };
 
   // Function to change to a random skin
-  const shuffleSkin = (resetInterval = false) => {
-    if (!webampRef.current || skins.length === 0) return;
+  const shuffleSkin = async () => {
+    if (!webampRef.current || skins.length === 0 || skinLoading) return;
 
     const webamp = webampRef.current;
 
@@ -166,19 +166,19 @@ export function WebampPlayer() {
     const displayName = nextSkin.filename.replace(/\.(wsz|zip|wal)$/i, "");
     setCurrentSkinName(displayName);
 
-    webamp.setSkinFromUrl(
-      `https://grant-uploader.s3.us-east-2.amazonaws.com/${nextSkin.s3_key}`,
-    );
-
-    // Reset progress
-    setShuffleProgress(0);
-
-    // Reset the interval if requested (e.g., from manual button click)
-    if (resetInterval && intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = window.setInterval(() => {
-        shuffleSkin();
-      }, 10000);
+    // Set loading state and wait for skin to load
+    setSkinLoading(true);
+    try {
+      webamp.setSkinFromUrl(
+        `https://grant-uploader.s3.us-east-2.amazonaws.com/${nextSkin.s3_key}`,
+      );
+      await webamp.skinIsLoaded();
+    } catch (error) {
+      console.error("Error loading skin:", error);
+    } finally {
+      setSkinLoading(false);
+      // Reset progress after skin loads
+      setShuffleProgress(0);
     }
   };
 
@@ -395,7 +395,9 @@ top: ${(windowHeight - originalHeight * scale) / 2 + padding}px;
     // Update progress every 100ms (1% every 100ms = 100% in 10s)
     progressIntervalRef.current = window.setInterval(() => {
       setShuffleProgress((prev) => {
-        if (prev >= 100) return 0;
+        // Don't increment while skin is loading, keep at current value
+        if (skinLoading) return prev;
+        if (prev >= 100) return 100; // Stay at 100% until skin loads
         return prev + 1;
       });
     }, 100);
@@ -406,40 +408,19 @@ top: ${(windowHeight - originalHeight * scale) / 2 + padding}px;
         progressIntervalRef.current = null;
       }
     };
-  }, [autoShuffle, webampReady, skins.length]);
+  }, [autoShuffle, webampReady, skins.length, skinLoading]);
 
   // Track previous progress for transition control
   useEffect(() => {
     prevProgressRef.current = shuffleProgress;
   }, [shuffleProgress]);
 
-  // Change skin to a random one every 10 seconds (if auto-shuffle is enabled)
+  // Trigger shuffle when progress reaches 100%
   useEffect(() => {
-    if (
-      !webampReady ||
-      !webampRef.current ||
-      skins.length === 0 ||
-      !autoShuffle
-    ) {
-      // Clear interval if auto-shuffle is disabled
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
-      return;
-    }
-
-    intervalRef.current = window.setInterval(() => {
+    if (shuffleProgress >= 100 && autoShuffle && !skinLoading) {
       shuffleSkin();
-    }, 10000); // 10 seconds
-
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
-    };
-  }, [webampReady, skins, autoShuffle]);
+    }
+  }, [shuffleProgress, autoShuffle, skinLoading]);
 
   if (error) {
     return (
@@ -502,7 +483,7 @@ top: ${(windowHeight - originalHeight * scale) / 2 + padding}px;
           }}
         >
           <button
-            onClick={() => shuffleSkin(true)}
+            onClick={() => shuffleSkin()}
             disabled={skins.length === 0}
             style={{
               padding: "8px 12px",

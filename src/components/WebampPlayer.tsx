@@ -11,6 +11,7 @@ interface Skin {
   filepath: string;
   liked: boolean;
   flagged: boolean;
+  s3_key: string;
 }
 
 interface SkinsResponse {
@@ -51,8 +52,8 @@ export function WebampPlayer() {
     setCurrentSkin({ ...currentSkin, liked: newLikedStatus });
     setSkins((prevSkins) =>
       prevSkins.map((skin) =>
-        skin.id === currentSkin.id ? { ...skin, liked: newLikedStatus } : skin
-      )
+        skin.id === currentSkin.id ? { ...skin, liked: newLikedStatus } : skin,
+      ),
     );
 
     try {
@@ -69,7 +70,7 @@ export function WebampPlayer() {
       }
 
       console.log(
-        `Skin ${currentSkin.filename} ${newLikedStatus ? "liked" : "unliked"}`
+        `Skin ${currentSkin.filename} ${newLikedStatus ? "liked" : "unliked"}`,
       );
     } catch (error) {
       console.error("Error toggling like:", error);
@@ -79,8 +80,8 @@ export function WebampPlayer() {
         prevSkins.map((skin) =>
           skin.id === currentSkin.id
             ? { ...skin, liked: !newLikedStatus }
-            : skin
-        )
+            : skin,
+        ),
       );
     }
   };
@@ -95,8 +96,10 @@ export function WebampPlayer() {
     setCurrentSkin({ ...currentSkin, flagged: newFlaggedStatus });
     setSkins((prevSkins) =>
       prevSkins.map((skin) =>
-        skin.id === currentSkin.id ? { ...skin, flagged: newFlaggedStatus } : skin
-      )
+        skin.id === currentSkin.id
+          ? { ...skin, flagged: newFlaggedStatus }
+          : skin,
+      ),
     );
 
     try {
@@ -113,12 +116,14 @@ export function WebampPlayer() {
       }
 
       console.log(
-        `Skin ${currentSkin.filename} ${newFlaggedStatus ? "flagged" : "unflagged"}`
+        `Skin ${currentSkin.filename} ${newFlaggedStatus ? "flagged" : "unflagged"}`,
       );
 
       // If we just flagged the current skin, remove it from the list and shuffle to next
       if (newFlaggedStatus) {
-        setSkins((prevSkins) => prevSkins.filter((skin) => skin.id !== currentSkin.id));
+        setSkins((prevSkins) =>
+          prevSkins.filter((skin) => skin.id !== currentSkin.id),
+        );
         // Shuffle to a different skin since this one is now flagged
         setTimeout(() => shuffleSkin(true), 100);
       }
@@ -130,8 +135,8 @@ export function WebampPlayer() {
         prevSkins.map((skin) =>
           skin.id === currentSkin.id
             ? { ...skin, flagged: !newFlaggedStatus }
-            : skin
-        )
+            : skin,
+        ),
       );
     }
   };
@@ -159,7 +164,9 @@ export function WebampPlayer() {
     setCurrentSkinName(displayName);
 
     console.log(`Changing to skin: ${nextSkin.filename}`);
-    webamp.setSkinFromUrl(`/${nextSkin.filepath}`);
+    webamp.setSkinFromUrl(
+      `https://grant-uploader.s3.us-east-2.amazonaws.com/${nextSkin.s3_key}`,
+    );
 
     // Reset progress
     setShuffleProgress(0);
@@ -286,8 +293,8 @@ export function WebampPlayer() {
   ]);
 
   useEffect(() => {
-    if (isInitialized) {
-      setTimeout(() => {
+    function runLayout() {
+      if (isInitialized) {
         // redo sizing
         const $webamp = document.getElementById("webamp");
         if ($webamp) {
@@ -296,10 +303,13 @@ export function WebampPlayer() {
           const windowHeight = window.innerHeight - padding * 2;
           const originalWidth = 274;
           const originalHeight = 346;
-          const scale = Math.min(Math.min(
-            windowWidth / originalWidth,
-            windowHeight / originalHeight,
-          ), 2);
+          const scale = Math.min(
+            Math.min(
+              windowWidth / originalWidth,
+              windowHeight / originalHeight,
+            ),
+            2,
+          );
           $webamp.children[0].children[0].children[0].setAttribute(
             "style",
             "transform: none;",
@@ -323,8 +333,15 @@ top: ${(windowHeight - originalHeight * scale) / 2 + padding}px;
 `,
           );
         }
-      }, 400);
+      }
     }
+    setTimeout(() => {
+      runLayout();
+    }, 400);
+    window.addEventListener("resize", runLayout);
+    return () => {
+      window.removeEventListener("resize", runLayout);
+    };
   }, [isInitialized]);
 
   // Load skins from API based on shuffle mode (always exclude flagged skins)
@@ -339,7 +356,7 @@ top: ${(windowHeight - originalHeight * scale) / 2 + padding}px;
       .then((data: SkinsResponse) => {
         setSkins(data.skins);
         console.log(
-          `Loaded ${data.skins.length} ${shuffleMode === "liked" ? "liked" : ""} skins (excluding flagged)`
+          `Loaded ${data.skins.length} ${shuffleMode === "liked" ? "liked" : ""} skins (excluding flagged)`,
         );
       })
       .catch((err) => console.error("Error loading skins:", err));
@@ -375,7 +392,12 @@ top: ${(windowHeight - originalHeight * scale) / 2 + padding}px;
 
   // Change skin to a random one every 10 seconds (if auto-shuffle is enabled)
   useEffect(() => {
-    if (!webampReady || !webampRef.current || skins.length === 0 || !autoShuffle) {
+    if (
+      !webampReady ||
+      !webampRef.current ||
+      skins.length === 0 ||
+      !autoShuffle
+    ) {
       // Clear interval if auto-shuffle is disabled
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
@@ -454,121 +476,133 @@ top: ${(windowHeight - originalHeight * scale) / 2 + padding}px;
             borderBottom: "1px solid #333",
           }}
         >
-        <button
-          onClick={() => shuffleSkin(true)}
-          disabled={skins.length === 0}
-          style={{
-            padding: "8px 12px",
-            backgroundColor: "#1db954",
-            color: "#fff",
-            border: "none",
-            borderRadius: "4px",
-            cursor: skins.length > 0 ? "pointer" : "not-allowed",
-            fontSize: "18px",
-            fontWeight: "600",
-            opacity: skins.length === 0 ? 0.5 : 1,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-          title={`Shuffle skin (${skins.length} available)`}
-        >
-          🔀
-        </button>
-        <button
-          onClick={toggleLikeSkin}
-          disabled={!currentSkin}
-          style={{
-            padding: "8px 12px",
-            backgroundColor: currentSkin?.liked ? "#e91e63" : "#666",
-            color: "#fff",
-            border: "none",
-            borderRadius: "4px",
-            cursor: currentSkin ? "pointer" : "not-allowed",
-            fontSize: "18px",
-            fontWeight: "600",
-            opacity: currentSkin ? 1 : 0.5,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-          title={currentSkin ? (currentSkin.liked ? "Unlike skin" : "Like skin") : "No skin loaded"}
-        >
-          {currentSkin?.liked ? "❤️" : "🤍"}
-        </button>
-        <button
-          onClick={toggleFlagSkin}
-          disabled={!currentSkin}
-          style={{
-            padding: "8px 12px",
-            backgroundColor: currentSkin?.flagged ? "#f44336" : "#666",
-            color: "#fff",
-            border: "none",
-            borderRadius: "4px",
-            cursor: currentSkin ? "pointer" : "not-allowed",
-            fontSize: "18px",
-            fontWeight: "600",
-            opacity: currentSkin ? 1 : 0.5,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-          title={currentSkin ? (currentSkin.flagged ? "Unflag skin (will be excluded)" : "Flag skin to exclude from shuffle") : "No skin loaded"}
-        >
-          {currentSkin?.flagged ? "🚩" : "⚑"}
-        </button>
-        <select
-          value={shuffleMode}
-          onChange={(e) => setShuffleMode(e.target.value as "all" | "liked")}
-          style={{
-            padding: "8px 12px",
-            backgroundColor: "#333",
-            color: "#fff",
-            border: "1px solid #555",
-            borderRadius: "4px",
-            cursor: "pointer",
-            fontSize: "14px",
-            fontWeight: "400",
-          }}
-        >
-          <option value="all">All skins</option>
-          <option value="liked">Liked only</option>
-        </select>
-        <label
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            color: "#fff",
-            fontSize: "14px",
-            cursor: "pointer",
-            userSelect: "none",
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={autoShuffle}
-            onChange={(e) => setAutoShuffle(e.target.checked)}
+          <button
+            onClick={() => shuffleSkin(true)}
+            disabled={skins.length === 0}
             style={{
-              width: "16px",
-              height: "16px",
-              cursor: "pointer",
-            }}
-          />
-          Auto-shuffle (10s)
-        </label>
-        {currentSkinName && (
-          <span
-            style={{
+              padding: "8px 12px",
+              backgroundColor: "#1db954",
               color: "#fff",
+              border: "none",
+              borderRadius: "4px",
+              cursor: skins.length > 0 ? "pointer" : "not-allowed",
+              fontSize: "18px",
+              fontWeight: "600",
+              opacity: skins.length === 0 ? 0.5 : 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+            title={`Shuffle skin (${skins.length} available)`}
+          >
+            🔀
+          </button>
+          <button
+            onClick={toggleLikeSkin}
+            disabled={!currentSkin}
+            style={{
+              padding: "8px 12px",
+              backgroundColor: currentSkin?.liked ? "#e91e63" : "#666",
+              color: "#fff",
+              border: "none",
+              borderRadius: "4px",
+              cursor: currentSkin ? "pointer" : "not-allowed",
+              fontSize: "18px",
+              fontWeight: "600",
+              opacity: currentSkin ? 1 : 0.5,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+            title={
+              currentSkin
+                ? currentSkin.liked
+                  ? "Unlike skin"
+                  : "Like skin"
+                : "No skin loaded"
+            }
+          >
+            {currentSkin?.liked ? "❤️" : "🤍"}
+          </button>
+          <button
+            onClick={toggleFlagSkin}
+            disabled={!currentSkin}
+            style={{
+              padding: "8px 12px",
+              backgroundColor: currentSkin?.flagged ? "#f44336" : "#666",
+              color: "#fff",
+              border: "none",
+              borderRadius: "4px",
+              cursor: currentSkin ? "pointer" : "not-allowed",
+              fontSize: "18px",
+              fontWeight: "600",
+              opacity: currentSkin ? 1 : 0.5,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+            title={
+              currentSkin
+                ? currentSkin.flagged
+                  ? "Unflag skin (will be excluded)"
+                  : "Flag skin to exclude from shuffle"
+                : "No skin loaded"
+            }
+          >
+            {currentSkin?.flagged ? "🚩" : "⚑"}
+          </button>
+          <select
+            value={shuffleMode}
+            onChange={(e) => setShuffleMode(e.target.value as "all" | "liked")}
+            style={{
+              padding: "8px 12px",
+              backgroundColor: "#333",
+              color: "#fff",
+              border: "1px solid #555",
+              borderRadius: "4px",
+              cursor: "pointer",
               fontSize: "14px",
               fontWeight: "400",
             }}
           >
-            {currentSkinName}
-          </span>
-        )}
-      </div>
+            <option value="all">All skins</option>
+            <option value="liked">Liked only</option>
+          </select>
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              color: "#fff",
+              fontSize: "14px",
+              cursor: "pointer",
+              userSelect: "none",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={autoShuffle}
+              onChange={(e) => setAutoShuffle(e.target.checked)}
+              style={{
+                width: "16px",
+                height: "16px",
+                cursor: "pointer",
+              }}
+            />
+            Auto-shuffle (10s)
+          </label>
+          {currentSkinName && (
+            <span
+              style={{
+                color: "#fff",
+                fontSize: "14px",
+                fontWeight: "400",
+              }}
+            >
+              {currentSkinName}
+            </span>
+          )}
+        </div>
       )}
       <div ref={containerRef} id="webamp-container" />
     </>

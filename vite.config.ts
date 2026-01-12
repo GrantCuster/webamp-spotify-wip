@@ -14,6 +14,14 @@ const config = defineConfig({
     viteTsConfigPaths({
       projects: ['./tsconfig.json'],
     }),
+    // copied from other projecct
+    nitro({
+      preset: "node-server",
+      rollupConfig: {
+        external: ['pg', 'pg-native', 'pg/lib', 'drizzle-orm/node-postgres', 'sharp']
+      },
+      port: 8010,
+    }),
     tailwindcss(),
     tanstackStart(),
     viteReact(),

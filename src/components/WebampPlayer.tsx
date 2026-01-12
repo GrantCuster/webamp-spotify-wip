@@ -37,10 +37,12 @@ export function WebampPlayer() {
 
   // Check if controls should be shown based on URL param
   const [showControls, setShowControls] = useState<boolean>(false);
+  const [displayMode, setDisplayMode] = useState<boolean>(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     setShowControls(params.get("controls") === "true");
+    setDisplayMode(params.get("display") === "true");
   }, []);
 
   // Function to toggle like status of current skin
@@ -164,7 +166,6 @@ export function WebampPlayer() {
     const displayName = nextSkin.filename.replace(/\.(wsz|zip|wal)$/i, "");
     setCurrentSkinName(displayName);
 
-    console.log(`Changing to skin: ${nextSkin.filename}`);
     webamp.setSkinFromUrl(
       `https://grant-uploader.s3.us-east-2.amazonaws.com/${nextSkin.s3_key}`,
     );
@@ -202,6 +203,21 @@ export function WebampPlayer() {
 
       const webamp = new Webamp({
         initialTracks: [],
+        windowLayout: {
+          main: {
+            position: { left: 0, top: 0 },
+          },
+          equalizer: {
+            position: { left: 0, top: 116 },
+          },
+          playlist: {
+            position: { left: 0, top: 232 },
+            size: {
+              extraHeight: 3,
+              extraWidth: 0,
+            },
+          },
+        },
         __customMediaClass: class {
           constructor() {
             return spotifyMediaRef.current!;
@@ -299,11 +315,11 @@ export function WebampPlayer() {
         // redo sizing
         const $webamp = document.getElementById("webamp");
         if ($webamp) {
-          const padding = 16;
+          const padding = displayMode ? 0 : 16;
           const windowWidth = window.innerWidth - padding * 2;
           const windowHeight = window.innerHeight - padding * 2;
           const originalWidth = 274;
-          const originalHeight = 346;
+          const originalHeight = 435;
           const scale = Math.min(
             Math.min(
               windowWidth / originalWidth,
@@ -311,6 +327,7 @@ export function WebampPlayer() {
             ),
             2,
           );
+
           $webamp.children[0].children[0].children[0].setAttribute(
             "style",
             "transform: none;",
@@ -343,7 +360,7 @@ top: ${(windowHeight - originalHeight * scale) / 2 + padding}px;
     return () => {
       window.removeEventListener("resize", runLayout);
     };
-  }, [isInitialized]);
+  }, [isInitialized, displayMode]);
 
   // Load skins from API based on shuffle mode (always exclude flagged skins)
   useEffect(() => {
@@ -450,7 +467,7 @@ top: ${(windowHeight - originalHeight * scale) / 2 + padding}px;
             top: 0,
             left: 0,
             right: 0,
-            height: "4px",
+            height: "3px",
             zIndex: 10000,
           }}
         >

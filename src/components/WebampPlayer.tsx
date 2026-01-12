@@ -33,6 +33,7 @@ export function WebampPlayer() {
   const [autoShuffle, setAutoShuffle] = useState<boolean>(true);
   const [shuffleProgress, setShuffleProgress] = useState<number>(0);
   const progressIntervalRef = useRef<number | null>(null);
+  const prevProgressRef = useRef<number>(0);
 
   // Check if controls should be shown based on URL param
   const [showControls, setShowControls] = useState<boolean>(false);
@@ -390,6 +391,11 @@ top: ${(windowHeight - originalHeight * scale) / 2 + padding}px;
     };
   }, [autoShuffle, webampReady, skins.length]);
 
+  // Track previous progress for transition control
+  useEffect(() => {
+    prevProgressRef.current = shuffleProgress;
+  }, [shuffleProgress]);
+
   // Change skin to a random one every 10 seconds (if auto-shuffle is enabled)
   useEffect(() => {
     if (
@@ -437,15 +443,14 @@ top: ${(windowHeight - originalHeight * scale) / 2 + padding}px;
   return (
     <>
       {/* Progress bar */}
-      {showControls && autoShuffle && (
+      {autoShuffle && (
         <div
           style={{
             position: "fixed",
             top: 0,
             left: 0,
             right: 0,
-            height: "3px",
-            backgroundColor: "#333",
+            height: "4px",
             zIndex: 10000,
           }}
         >
@@ -453,8 +458,11 @@ top: ${(windowHeight - originalHeight * scale) / 2 + padding}px;
             style={{
               height: "100%",
               width: `${shuffleProgress}%`,
-              backgroundColor: "#1db954",
-              transition: "width 0.1s linear",
+              backgroundColor: "#444",
+              transition:
+                shuffleProgress > prevProgressRef.current
+                  ? "width 0.1s linear"
+                  : "none",
             }}
           />
         </div>
@@ -605,6 +613,9 @@ top: ${(windowHeight - originalHeight * scale) / 2 + padding}px;
         </div>
       )}
       <div ref={containerRef} id="webamp-container" />
+      <div className="absolute left-0 bottom-0 text-center w-full text-gray-500 text-sm mb-2">
+        {currentSkinName || "Default"}
+      </div>
     </>
   );
 }

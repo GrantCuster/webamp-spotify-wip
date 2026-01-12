@@ -1,16 +1,6 @@
 @import "tailwindcss";
 
 :root {
-  color-scheme: light;
-  --bg-value: white;
-  --fg-value: #000000;
-  --muted-value: #737373;
-  --extra-muted-value: #a3a3a3;
-  --faint-value: #ddd;
-  --extra-faint-value: #f5f5f5;
-}
-
-:root[data-theme="dark"] {
   color-scheme: dark;
   --bg-value: #121212;
   --fg-value: #ffffff;
@@ -18,18 +8,6 @@
   --extra-muted-value: #585858;
   --faint-value: #282828;
   --extra-faint-value: #181818;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme]) {
-    color-scheme: dark;
-    --bg-value: #121212;
-    --fg-value: #ffffff;
-    --muted-value: #737373;
-    --extra-muted-value: #585858;
-    --faint-value: #282828;
-    --extra-faint-value: #181818;
-  }
 }
 
 #webamp-container {

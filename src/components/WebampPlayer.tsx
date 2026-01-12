@@ -1,0 +1,576 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { useSpotify } from "../hooks/useSpotify";
+import { SpotifyMedia } from "../services/spotify-media";
+
+interface Skin {
+  id: number;
+  md5: string;
+  filename: string;
+  filepath: string;
+  liked: boolean;
+  flagged: boolean;
+}
+
+interface SkinsResponse {
+  skins: Skin[];
+}
+
+export function WebampPlayer() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const webampRef = useRef<any | null>(null);
+  const spotifyMediaRef = useRef<SpotifyMedia | null>(null);
+  const { spotifyService, isInitialized, playerState, error } = useSpotify();
+  const [webampReady, setWebampReady] = useState(false);
+  const [skins, setSkins] = useState<Skin[]>([]);
+  const currentSkinIndexRef = useRef<number>(0);
+  const [currentSkin, setCurrentSkin] = useState<Skin | null>(null);
+  const [shuffleMode, setShuffleMode] = useState<"all" | "liked">("all");
+  const intervalRef = useRef<number | null>(null);
+  const [currentSkinName, setCurrentSkinName] = useState<string>("");
+  const [autoShuffle, setAutoShuffle] = useState<boolean>(true);
+  const [shuffleProgress, setShuffleProgress] = useState<number>(0);
+  const progressIntervalRef = useRef<number | null>(null);
+
+  // Check if controls should be shown based on URL param
+  const [showControls, setShowControls] = useState<boolean>(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setShowControls(params.get("controls") === "true");
+  }, []);
+
+  // Function to toggle like status of current skin
+  const toggleLikeSkin = async () => {
+    if (!currentSkin) return;
+
+    const newLikedStatus = !currentSkin.liked;
+
+    // Optimistically update local state
+    setCurrentSkin({ ...currentSkin, liked: newLikedStatus });
+    setSkins((prevSkins) =>
+      prevSkins.map((skin) =>
+        skin.id === currentSkin.id ? { ...skin, liked: newLikedStatus } : skin
+      )
+    );
+
+    try {
+      const response = await fetch(`/api/skins/${currentSkin.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ liked: newLikedStatus }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to update like status");
+      }
+
+      console.log(
+        `Skin ${currentSkin.filename} ${newLikedStatus ? "liked" : "unliked"}`
+      );
+    } catch (error) {
+      console.error("Error toggling like:", error);
+      // Revert optimistic update on error
+      setCurrentSkin({ ...currentSkin, liked: !newLikedStatus });
+      setSkins((prevSkins) =>
+        prevSkins.map((skin) =>
+          skin.id === currentSkin.id
+            ? { ...skin, liked: !newLikedStatus }
+            : skin
+        )
+      );
+    }
+  };
+
+  // Function to toggle flag status of current skin
+  const toggleFlagSkin = async () => {
+    if (!currentSkin) return;
+
+    const newFlaggedStatus = !currentSkin.flagged;
+
+    // Optimistically update local state
+    setCurrentSkin({ ...currentSkin, flagged: newFlaggedStatus });
+    setSkins((prevSkins) =>
+      prevSkins.map((skin) =>
+        skin.id === currentSkin.id ? { ...skin, flagged: newFlaggedStatus } : skin
+      )
+    );
+
+    try {
+      const response = await fetch(`/api/skins/${currentSkin.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ flagged: newFlaggedStatus }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to update flag status");
+      }
+
+      console.log(
+        `Skin ${currentSkin.filename} ${newFlaggedStatus ? "flagged" : "unflagged"}`
+      );
+
+      // If we just flagged the current skin, remove it from the list and shuffle to next
+      if (newFlaggedStatus) {
+        setSkins((prevSkins) => prevSkins.filter((skin) => skin.id !== currentSkin.id));
+        // Shuffle to a different skin since this one is now flagged
+        setTimeout(() => shuffleSkin(true), 100);
+      }
+    } catch (error) {
+      console.error("Error toggling flag:", error);
+      // Revert optimistic update on error
+      setCurrentSkin({ ...currentSkin, flagged: !newFlaggedStatus });
+      setSkins((prevSkins) =>
+        prevSkins.map((skin) =>
+          skin.id === currentSkin.id
+            ? { ...skin, flagged: !newFlaggedStatus }
+            : skin
+        )
+      );
+    }
+  };
+
+  // Function to change to a random skin
+  const shuffleSkin = (resetInterval = false) => {
+    if (!webampRef.current || skins.length === 0) return;
+
+    const webamp = webampRef.current;
+
+    // Get random skin (different from current)
+    let randomIndex;
+    do {
+      randomIndex = Math.floor(Math.random() * skins.length);
+    } while (randomIndex === currentSkinIndexRef.current && skins.length > 1);
+
+    currentSkinIndexRef.current = randomIndex;
+    const nextSkin = skins[randomIndex];
+
+    // Update current skin state
+    setCurrentSkin(nextSkin);
+
+    // Remove .wsz extension from filename for display
+    const displayName = nextSkin.filename.replace(/\.(wsz|zip|wal)$/i, "");
+    setCurrentSkinName(displayName);
+
+    console.log(`Changing to skin: ${nextSkin.filename}`);
+    webamp.setSkinFromUrl(`/${nextSkin.filepath}`);
+
+    // Reset progress
+    setShuffleProgress(0);
+
+    // Reset the interval if requested (e.g., from manual button click)
+    if (resetInterval && intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = window.setInterval(() => {
+        shuffleSkin();
+      }, 10000);
+    }
+  };
+
+  // Initialize Webamp after Spotify is ready
+  useEffect(() => {
+    if (
+      !isInitialized ||
+      !containerRef.current ||
+      webampRef.current ||
+      !spotifyService
+    )
+      return;
+
+    console.log("Loading Webamp...");
+
+    // Create custom media class for Spotify
+    spotifyMediaRef.current = new SpotifyMedia(spotifyService);
+
+    // Dynamically import Webamp only on the client
+    import("webamp").then((WebampModule) => {
+      const Webamp = WebampModule.default;
+
+      const webamp = new Webamp({
+        initialTracks: [],
+        __customMediaClass: class {
+          constructor() {
+            return spotifyMediaRef.current!;
+          }
+        } as any,
+      });
+
+      webamp.renderWhenReady(containerRef.current!).then(() => {
+        console.log("Webamp is ready!");
+        webampRef.current = webamp;
+        setWebampReady(true);
+      });
+    });
+
+    return () => {
+      if (webampRef.current) {
+        webampRef.current.dispose();
+      }
+      if (spotifyMediaRef.current) {
+        spotifyMediaRef.current.dispose();
+      }
+    };
+  }, [isInitialized, spotifyService]);
+
+  // Update Webamp's playlist when track changes
+  useEffect(() => {
+    if (
+      !webampReady ||
+      !webampRef.current ||
+      !playerState.currentTrack ||
+      !spotifyService
+    )
+      return;
+
+    const updatePlaylist = async () => {
+      const webamp = webampRef.current;
+      if (!webamp) return;
+
+      // Fetch the queue from Spotify
+      const queueData = await spotifyService.getQueue();
+
+      // Convert all tracks (current + queue) to Webamp format
+      const tracks = [];
+
+      // Add current track first
+      if (queueData.currently_playing) {
+        tracks.push({
+          metaData: {
+            artist: queueData.currently_playing.artists
+              .map((a) => a.name)
+              .join(", "),
+            title: queueData.currently_playing.name,
+          },
+          url: "",
+          duration: queueData.currently_playing.duration_ms / 1000,
+        });
+      }
+
+      // Add queued tracks
+      queueData.queue.forEach((track) => {
+        tracks.push({
+          metaData: {
+            artist: track.artists.map((a) => a.name).join(", "),
+            title: track.name,
+          },
+          url: "",
+          duration: track.duration_ms / 1000,
+        });
+      });
+
+      // Update Webamp's playlist
+      if (tracks.length > 0) {
+        webamp.setTracksToPlay(tracks);
+
+        // Sync play/pause state with Spotify
+        if (playerState.isPlaying) {
+          webamp.play();
+        } else {
+          webamp.pause();
+        }
+      }
+    };
+
+    updatePlaylist();
+  }, [
+    playerState.currentTrack,
+    playerState.isPlaying,
+    webampReady,
+    spotifyService,
+  ]);
+
+  useEffect(() => {
+    if (isInitialized) {
+      setTimeout(() => {
+        // redo sizing
+        const $webamp = document.getElementById("webamp");
+        if ($webamp) {
+          const padding = 16;
+          const windowWidth = window.innerWidth - padding * 2;
+          const windowHeight = window.innerHeight - padding * 2;
+          const originalWidth = 274;
+          const originalHeight = 346;
+          const scale = Math.min(Math.min(
+            windowWidth / originalWidth,
+            windowHeight / originalHeight,
+          ), 2);
+          $webamp.children[0].children[0].children[0].setAttribute(
+            "style",
+            "transform: none;",
+          );
+          $webamp.children[0].children[0].children[2].setAttribute(
+            "style",
+            "transform: none; position: absolute; top: 116px;",
+          );
+          $webamp.children[0].children[0].children[1].setAttribute(
+            "style",
+            "transform: none; position: absolute; top: 232px;",
+          );
+
+          $webamp.children[0].children[0].setAttribute(
+            "style",
+            `position: absolute;
+            transform: scale(${scale});
+            transform-origin: top left;
+left: ${(windowWidth - originalWidth * scale) / 2 + padding}px;
+top: ${(windowHeight - originalHeight * scale) / 2 + padding}px;
+`,
+          );
+        }
+      }, 400);
+    }
+  }, [isInitialized]);
+
+  // Load skins from API based on shuffle mode (always exclude flagged skins)
+  useEffect(() => {
+    const url =
+      shuffleMode === "liked"
+        ? "/api/skins?liked=true&flagged=false"
+        : "/api/skins?flagged=false";
+
+    fetch(url)
+      .then((res) => res.json())
+      .then((data: SkinsResponse) => {
+        setSkins(data.skins);
+        console.log(
+          `Loaded ${data.skins.length} ${shuffleMode === "liked" ? "liked" : ""} skins (excluding flagged)`
+        );
+      })
+      .catch((err) => console.error("Error loading skins:", err));
+  }, [shuffleMode]);
+
+  // Update progress bar for auto-shuffle
+  useEffect(() => {
+    if (!autoShuffle || !webampReady || skins.length === 0) {
+      // Clear progress interval and reset progress if auto-shuffle is disabled
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
+      }
+      setShuffleProgress(0);
+      return;
+    }
+
+    // Update progress every 100ms (1% every 100ms = 100% in 10s)
+    progressIntervalRef.current = window.setInterval(() => {
+      setShuffleProgress((prev) => {
+        if (prev >= 100) return 0;
+        return prev + 1;
+      });
+    }, 100);
+
+    return () => {
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
+      }
+    };
+  }, [autoShuffle, webampReady, skins.length]);
+
+  // Change skin to a random one every 10 seconds (if auto-shuffle is enabled)
+  useEffect(() => {
+    if (!webampReady || !webampRef.current || skins.length === 0 || !autoShuffle) {
+      // Clear interval if auto-shuffle is disabled
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+      return;
+    }
+
+    intervalRef.current = window.setInterval(() => {
+      shuffleSkin();
+    }, 10000); // 10 seconds
+
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, [webampReady, skins, autoShuffle]);
+
+  if (error) {
+    return (
+      <div className="p-4 bg-red-100 border border-red-400 text-red-700 rounded">
+        <p>Error: {error}</p>
+      </div>
+    );
+  }
+
+  if (!isInitialized) {
+    return (
+      <div className="p-4 bg-blue-100 border border-blue-400 text-blue-700 rounded">
+        <p>Initializing Spotify player...</p>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {/* Progress bar */}
+      {showControls && autoShuffle && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            height: "3px",
+            backgroundColor: "#333",
+            zIndex: 10000,
+          }}
+        >
+          <div
+            style={{
+              height: "100%",
+              width: `${shuffleProgress}%`,
+              backgroundColor: "#1db954",
+              transition: "width 0.1s linear",
+            }}
+          />
+        </div>
+      )}
+      {showControls && (
+        <div
+          style={{
+            position: "fixed",
+            top: autoShuffle ? "3px" : 0,
+            left: 0,
+            right: 0,
+            height: "48px",
+            backgroundColor: "#000",
+            display: "flex",
+            alignItems: "center",
+            gap: "16px",
+            padding: "0 16px",
+            zIndex: 9999,
+            borderBottom: "1px solid #333",
+          }}
+        >
+        <button
+          onClick={() => shuffleSkin(true)}
+          disabled={skins.length === 0}
+          style={{
+            padding: "8px 12px",
+            backgroundColor: "#1db954",
+            color: "#fff",
+            border: "none",
+            borderRadius: "4px",
+            cursor: skins.length > 0 ? "pointer" : "not-allowed",
+            fontSize: "18px",
+            fontWeight: "600",
+            opacity: skins.length === 0 ? 0.5 : 1,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+          title={`Shuffle skin (${skins.length} available)`}
+        >
+          🔀
+        </button>
+        <button
+          onClick={toggleLikeSkin}
+          disabled={!currentSkin}
+          style={{
+            padding: "8px 12px",
+            backgroundColor: currentSkin?.liked ? "#e91e63" : "#666",
+            color: "#fff",
+            border: "none",
+            borderRadius: "4px",
+            cursor: currentSkin ? "pointer" : "not-allowed",
+            fontSize: "18px",
+            fontWeight: "600",
+            opacity: currentSkin ? 1 : 0.5,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+          title={currentSkin ? (currentSkin.liked ? "Unlike skin" : "Like skin") : "No skin loaded"}
+        >
+          {currentSkin?.liked ? "❤️" : "🤍"}
+        </button>
+        <button
+          onClick={toggleFlagSkin}
+          disabled={!currentSkin}
+          style={{
+            padding: "8px 12px",
+            backgroundColor: currentSkin?.flagged ? "#f44336" : "#666",
+            color: "#fff",
+            border: "none",
+            borderRadius: "4px",
+            cursor: currentSkin ? "pointer" : "not-allowed",
+            fontSize: "18px",
+            fontWeight: "600",
+            opacity: currentSkin ? 1 : 0.5,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+          title={currentSkin ? (currentSkin.flagged ? "Unflag skin (will be excluded)" : "Flag skin to exclude from shuffle") : "No skin loaded"}
+        >
+          {currentSkin?.flagged ? "🚩" : "⚑"}
+        </button>
+        <select
+          value={shuffleMode}
+          onChange={(e) => setShuffleMode(e.target.value as "all" | "liked")}
+          style={{
+            padding: "8px 12px",
+            backgroundColor: "#333",
+            color: "#fff",
+            border: "1px solid #555",
+            borderRadius: "4px",
+            cursor: "pointer",
+            fontSize: "14px",
+            fontWeight: "400",
+          }}
+        >
+          <option value="all">All skins</option>
+          <option value="liked">Liked only</option>
+        </select>
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            color: "#fff",
+            fontSize: "14px",
+            cursor: "pointer",
+            userSelect: "none",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={autoShuffle}
+            onChange={(e) => setAutoShuffle(e.target.checked)}
+            style={{
+              width: "16px",
+              height: "16px",
+              cursor: "pointer",
+            }}
+          />
+          Auto-shuffle (10s)
+        </label>
+        {currentSkinName && (
+          <span
+            style={{
+              color: "#fff",
+              fontSize: "14px",
+              fontWeight: "400",
+            }}
+          >
+            {currentSkinName}
+          </span>
+        )}
+      </div>
+      )}
+      <div ref={containerRef} id="webamp-container" />
+    </>
+  );
+}

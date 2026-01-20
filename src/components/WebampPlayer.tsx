@@ -392,13 +392,13 @@ top: ${(windowHeight - originalHeight * scale) / 2 + padding}px;
       return;
     }
 
-    // Update progress every 100ms (1% every 100ms = 100% in 10s)
+    // Update progress every 100ms (0.5% every 100ms = 100% in 20s)
     progressIntervalRef.current = window.setInterval(() => {
       setShuffleProgress((prev) => {
-        // Don't increment while skin is loading, keep at current value
-        if (skinLoading) return prev;
+        // Don't increment while skin is loading or music is paused
+        if (skinLoading || !playerState?.isPlaying) return prev;
         if (prev >= 100) return 100; // Stay at 100% until skin loads
-        return prev + 1;
+        return prev + 0.5;
       });
     }, 100);
 
@@ -408,7 +408,7 @@ top: ${(windowHeight - originalHeight * scale) / 2 + padding}px;
         progressIntervalRef.current = null;
       }
     };
-  }, [autoShuffle, webampReady, skins.length, skinLoading]);
+  }, [autoShuffle, webampReady, skins.length, skinLoading, playerState?.isPlaying]);
 
   // Track previous progress for transition control
   useEffect(() => {
@@ -595,7 +595,7 @@ top: ${(windowHeight - originalHeight * scale) / 2 + padding}px;
                 cursor: "pointer",
               }}
             />
-            Auto-shuffle (10s)
+            Auto-shuffle (20s)
           </label>
           {currentSkinName && (
             <span

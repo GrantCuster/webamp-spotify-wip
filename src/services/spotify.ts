@@ -16,6 +16,7 @@ export interface SpotifyPlayerState {
   currentTrack: SpotifyTrack | null;
   progress_ms: number;
   duration_ms: number;
+  contextUri: string | null;
 }
 
 export class SpotifyService {
@@ -63,6 +64,7 @@ export class SpotifyService {
           currentTrack: null,
           progress_ms: 0,
           duration_ms: 0,
+          contextUri: null,
         });
         return;
       }
@@ -82,6 +84,7 @@ export class SpotifyService {
           },
           progress_ms: data.progress_ms || 0,
           duration_ms: data.item.duration_ms,
+          contextUri: data.context?.uri || null,
         };
 
         this.lastState = state;
@@ -181,6 +184,38 @@ export class SpotifyService {
       });
     } catch (error) {
       console.error('Error seeking:', error);
+    }
+  }
+
+  async playTrack(trackId: string, contextUri?: string | null): Promise<void> {
+    try {
+      let body: any;
+
+      if (contextUri) {
+        // Play within context (album/playlist) - preserves queue
+        body = {
+          context_uri: contextUri,
+          offset: { uri: `spotify:track:${trackId}` },
+        };
+      } else {
+        // Play just the track (no context)
+        body = {
+          uris: [`spotify:track:${trackId}`],
+        };
+      }
+
+      await fetch('https://api.spotify.com/v1/me/player/play', {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${this.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+      // Poll immediately to update UI faster
+      setTimeout(() => this.pollPlaybackState(), 300);
+    } catch (error) {
+      console.error('Error playing track:', error);
     }
   }
 
